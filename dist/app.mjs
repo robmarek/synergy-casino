@@ -1,7 +1,8 @@
 import {
   CURRENCY, START_BALANCE, MIN_BET, MAX_BET, DICE_BETS, ROULETTE_WHEEL, createSession, loadSession,
   saveSession, scoreHand, startBlackjack, hitBlackjack, standBlackjack, doubleBlackjack,
-  canDoubleBlackjack, spinRoulette, rouletteColor, rollDice,
+  canDoubleBlackjack, spinRoulette, rouletteColor, rollDice, POKER_PAYTABLE,
+  startVideoPoker, togglePokerHold, drawVideoPoker,
 } from './casino.mjs';
 import { SYNERGY_NETWORK, checkSynergyNetwork } from './synergy.mjs';
 
@@ -11,8 +12,10 @@ const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const snrg = (value) => `${amount.format(value)} ${CURRENCY}`;
 const signed = (value) => value > 0 ? `+${snrg(value)}` : value < 0 ? `−${snrg(-value)}` : snrg(0);
 const suits = { spades: '♠', hearts: '♥', clubs: '♣', diamonds: '♦' };
+const faceRanks = { A: 'Ace', J: 'Jack', Q: 'Queen', K: 'King' };
 const resultNames = { playing: 'Your move', win: 'You win', loss: 'House wins', push: 'Push', blackjack: 'Blackjack!' };
 const rouletteBets = { red: 'Red', black: 'Black', odd: 'Odd', even: 'Even', number: 'Exact number' };
+const pokerHands = new Map(POKER_PAYTABLE.map(({ category, label }) => [category, label]));
 const tableInfo = {
   blackjack: {
     title: 'Blackjack',
@@ -41,6 +44,16 @@ const tableInfo = {
     rules: [
       'Low covers totals 2–6. High covers totals 8–12. Both pay 1:1.',
       'An exact total of seven pays 4:1 and loses on low and high.',
+    ],
+  },
+  videoPoker: {
+    title: 'Video Poker',
+    intro: 'Play Jacks or Better with five cards and one draw.',
+    action: 'Deal cards',
+    rules: [
+      'Each wager starts with five cards from a fresh 52-card deck.',
+      'Select the cards you want to hold, then draw once. The draw replaces every unheld card.',
+      'A pair of jacks, queens, kings, or aces returns your stake. A pair of tens or lower pays zero. All payouts in the paytable include the original stake.',
     ],
   },
 };
@@ -85,12 +98,13 @@ let rouletteNumber = 0;
 let diceBet = 'low';
 let notice = '';
 let error = false;
-const stakes = { blackjack: '25', roulette: '25', dice: '25' };
+const stakes = { blackjack: '25', roulette: '25', dice: '25', videoPoker: '25' };
 
 function navigate(focus = false) {
   const hash = location.hash.slice(1);
   const previous = route;
-  route = Object.hasOwn(tableInfo, hash) ? hash : 'lobby';
+  const table = hash === 'video-poker' ? 'videoPoker' : hash;
+  route = Object.hasOwn(tableInfo, table) ? table : 'lobby';
   byId('lobby').hidden = route !== 'lobby';
   byId('table-view').hidden = route === 'lobby';
   document.querySelectorAll('[data-route]').forEach((link) => {
@@ -116,13 +130,21 @@ function setNotice(message, isError = false) {
 }
 
 function play(action, nextFocus, animateSelector) {
-  const previouslyFocused = byId('controls').contains(document.activeElement);
+  const previouslyFocused = byId('controls').contains(document.activeElement) || byId('game-stage').contains(document.activeElement);
   try {
     state = action(state);
     const result = state[route];
-    const status = result?.status === 'playing'
-      ? (canDoubleBlackjack(state) ? 'Choose hit, stand, or double down.' : 'Choose hit or stand.')
-      : `${resultNames[result.status]}. ${snrg(result.payout)} returned.`;
+    let status = '';
+    if (route === 'videoPoker') {
+      const held = result.held.filter(Boolean).length;
+      status = result.status === 'playing'
+        ? `${held} of 5 cards held.`
+        : `${pokerHands.get(result.category)}. ${snrg(result.payout)} returned.`;
+    } else {
+      status = result.status === 'playing'
+        ? (canDoubleBlackjack(state) ? 'Choose hit, stand, or double down.' : 'Choose hit or stand.')
+        : `${resultNames[result.status]}. ${snrg(result.payout)} returned.`;
+    }
     setNotice(status);
     persist();
     render();
@@ -134,15 +156,19 @@ function play(action, nextFocus, animateSelector) {
   }
 }
 
+function cardName(card) {
+  return `${faceRanks[card.rank] ?? card.rank} of ${card.suit}`;
+}
+
 function showCard(card, hide = false) {
-  const item = node('div', 'card-face');
+  const item = node('span', 'card-face');
   if (hide || !card) {
     item.classList.add(hide ? 'card-back' : 'card-placeholder');
     item.setAttribute('aria-label', hide ? 'Face-down card' : 'Empty card slot');
     item.append(node('span', 'suit', hide ? '♠' : '◇'));
   } else {
     if (['hearts', 'diamonds'].includes(card.suit)) item.classList.add('red');
-    item.setAttribute('aria-label', `${card.rank} of ${card.suit}`);
+    item.setAttribute('aria-label', cardName(card));
     item.append(node('span', 'rank', card.rank), node('span', 'suit', suits[card.suit]));
   }
   item.setAttribute('role', 'img');
@@ -182,6 +208,40 @@ function blackjackStage() {
     resultBlock(hand, '', hand?.status === 'playing' ? 'Your move' : 'Place a bet to deal'),
     showHand('Your hand', hand?.player ?? []),
   ];
+}
+
+function videoPokerStage() {
+  const hand = state.videoPoker;
+  const playing = hand?.status === 'playing';
+  const cards = node('div', 'poker-cards');
+  cards.setAttribute('role', 'group');
+  cards.setAttribute('aria-label', playing ? 'Choose cards to hold' : 'Video poker hand');
+  for (let index = 0; index < 5; index += 1) {
+    const card = hand?.cards[index];
+    const face = showCard(card, !card);
+    if (playing) {
+      const id = `hold-card-${index + 1}`;
+      const slot = button('', 'poker-slot', id, () => play((current) => togglePokerHold(current, index), id));
+      slot.setAttribute('aria-label', `Hold ${cardName(card)}`);
+      slot.setAttribute('aria-pressed', String(hand.held[index]));
+      face.setAttribute('aria-hidden', 'true');
+      const mark = node('span', 'hold-mark', hand.held[index] ? 'Held' : 'Hold');
+      mark.setAttribute('aria-hidden', 'true');
+      slot.append(face, mark);
+      cards.append(slot);
+    } else {
+      cards.append(face);
+    }
+  }
+
+  const result = node('div', 'round-result');
+  const title = !hand ? 'Place a bet to deal' : playing ? 'Choose cards to hold' : pokerHands.get(hand.category);
+  result.append(node('strong', '', title));
+  if (hand && !playing) {
+    result.append(node('span', hand.net > 0 ? 'positive' : hand.net < 0 ? 'negative' : '',
+      `${signed(hand.net)} net · ${snrg(hand.payout)} returned`));
+  }
+  return [node('div', 'stage-label', 'Jacks or Better'), cards, result];
 }
 
 function rouletteStage() {
@@ -332,6 +392,40 @@ function activeHandControls() {
   return container;
 }
 
+function activePokerControls() {
+  const container = node('div', 'poker-actions');
+  container.append(
+    node('p', 'hint', `${snrg(state.videoPoker.stake)} in play. Draw once to replace your unheld cards.`),
+    button('Draw cards', 'gold-button bet-submit', 'draw-poker', () => play(drawVideoPoker, 'wager')),
+  );
+  return container;
+}
+
+function makePokerPaytable() {
+  const table = node('table', 'poker-paytable');
+  table.append(node('caption', '', 'Jacks or Better paytable'));
+  const header = node('tr');
+  const headers = ['Hand', 'Return per 1 SNRG'].map((label) => {
+    const cell = node('th', '', label);
+    cell.scope = 'col';
+    return cell;
+  });
+  header.append(...headers);
+  const head = node('thead');
+  head.append(header);
+  const body = node('tbody');
+  const category = state.videoPoker?.category;
+  for (const entry of POKER_PAYTABLE) {
+    const row = node('tr', entry.category === category ? 'poker-result-row' : '');
+    const label = node('th', '', entry.label);
+    label.scope = 'row';
+    row.append(label, node('td', '', amount.format(entry.payoutMultiplier)));
+    body.append(row);
+  }
+  table.append(head, body);
+  return table;
+}
+
 function wagerControls() {
   const form = node('form');
   const { group, input } = makeStakeField();
@@ -358,6 +452,7 @@ function wagerControls() {
     if (route === 'roulette') play((current) => spinRoulette(current, stake,
       rouletteBet === 'number' ? { type: rouletteBet, number: rouletteNumber } : { type: rouletteBet }), 'wager', '.wheel-disc');
     if (route === 'dice') play((current) => rollDice(current, stake, diceBet), 'wager', '.dice-tray');
+    if (route === 'videoPoker') play((current) => startVideoPoker(current, stake), 'hold-card-1');
   });
   return form;
 }
@@ -368,12 +463,14 @@ function render() {
   byId('table-title').textContent = tableInfo[route].title;
   byId('table-intro').textContent = tableInfo[route].intro;
   const stage = byId('game-stage');
-  stage.className = `game-stage ${route}-stage`;
-  const buildStage = { blackjack: blackjackStage, roulette: rouletteStage, dice: diceStage };
+  stage.className = `game-stage ${route === 'videoPoker' ? 'video-poker' : route}-stage`;
+  const buildStage = { blackjack: blackjackStage, roulette: rouletteStage, dice: diceStage, videoPoker: videoPokerStage };
   stage.replaceChildren(...buildStage[route]());
-  const activeHand = route === 'blackjack' && state.blackjack?.status === 'playing';
-  byId('controls-title').textContent = activeHand ? 'Your move' : 'Place your bet';
-  byId('controls').replaceChildren(activeHand ? activeHandControls() : wagerControls());
+  const activeHand = state[route]?.status === 'playing';
+  byId('controls-title').textContent = activeHand ? (route === 'videoPoker' ? 'Make your draw' : 'Your move') : 'Place your bet';
+  const controls = byId('controls');
+  controls.replaceChildren(activeHand ? (route === 'videoPoker' ? activePokerControls() : activeHandControls()) : wagerControls());
+  if (route === 'videoPoker') controls.append(makePokerPaytable());
   setNotice(notice, error);
 }
 
@@ -412,6 +509,17 @@ function showSession() {
   const content = byId('session-content');
   content.replaceChildren(stats);
   if (state.blackjack?.status === 'playing') content.append(node('p', '', `Blackjack hand in progress · ${snrg(state.blackjack.stake)} reserved`));
+  if (state.videoPoker?.status === 'playing') {
+    const pending = node('p', 'pending-hand');
+    const resume = node('a', '', 'Resume video poker hand');
+    resume.href = '#video-poker';
+    resume.addEventListener('click', () => {
+      byId('session-dialog').close();
+      if (route === 'videoPoker') byId('hold-card-1').focus();
+    });
+    pending.append(resume, document.createTextNode(` · ${snrg(state.videoPoker.stake)} reserved`));
+    content.append(pending);
+  }
   content.append(history);
   byId('session-dialog').showModal();
 }

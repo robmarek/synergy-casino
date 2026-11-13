@@ -3,7 +3,8 @@ export const START_BALANCE = 1000;
 export const MIN_BET = 1;
 export const MAX_BET = 500;
 
-const VERSION = 1;
+const VERSION = 2;
+const LEGACY_VERSION = 1;
 const HISTORY_LIMIT = 30;
 const SHOE_CUT = 26;
 const UINT32_RANGE = 2 ** 32;
@@ -25,6 +26,21 @@ export const DICE_BETS = Object.freeze({
   high: Object.freeze({ label: 'High', odds: '1:1', min: 8, max: 12, payoutMultiplier: 2 }),
   seven: Object.freeze({ label: 'Seven', odds: '4:1', min: 7, max: 7, payoutMultiplier: 5 }),
 });
+
+// Gross returns include the stake. This paytable applies at every stake size.
+export const POKER_PAYTABLE = Object.freeze([
+  ['royal-flush', 'Royal flush', 800],
+  ['straight-flush', 'Straight flush', 50],
+  ['four-of-a-kind', 'Four of a kind', 25],
+  ['full-house', 'Full house', 9],
+  ['flush', 'Flush', 6],
+  ['straight', 'Straight', 4],
+  ['three-of-a-kind', 'Three of a kind', 3],
+  ['two-pair', 'Two pair', 2],
+  ['jacks-or-better', 'Jacks or better', 1],
+  ['nothing', 'No paying hand', 0],
+].map(([category, label, payoutMultiplier]) => Object.freeze({ category, label, payoutMultiplier })));
+const POKER_RESULTS = Object.fromEntries(POKER_PAYTABLE.map((result) => [result.category, result]));
 
 function integerBetween(value, min, max) {
   return Number.isSafeInteger(value) && value >= min && value <= max;
@@ -62,6 +78,7 @@ export function createSession() {
     version: VERSION,
     balance: START_BALANCE,
     blackjack: null,
+    videoPoker: null,
     roulette: null,
     dice: null,
     shoe: [],
@@ -202,6 +219,71 @@ export function doubleBlackjack(state) {
   return dealerPlays(next);
 }
 
+export function scorePokerHand(cards) {
+  if (!validPokerCards(cards)) throw new Error('A poker hand must contain five distinct cards.');
+
+  const ranks = cards.map(({ rank }) => rank === 'A' ? 14 : RANKS.indexOf(rank) + 1).sort((a, b) => a - b);
+  const counts = new Map();
+  for (const rank of ranks) counts.set(rank, (counts.get(rank) ?? 0) + 1);
+  const groups = [...counts.values()].sort((a, b) => b - a);
+  const [low, , , fourth, high] = ranks;
+  const flush = cards.every(({ suit }) => suit === cards[0].suit);
+  const aceLow = low === 2 && fourth === 5 && high === 14;
+  const straight = counts.size === 5 && (high - low === 4 || aceLow);
+
+  if (flush && straight) return low === 10 ? 'royal-flush' : 'straight-flush';
+  if (groups[0] === 4) return 'four-of-a-kind';
+  if (groups[0] === 3 && groups[1] === 2) return 'full-house';
+  if (flush) return 'flush';
+  if (straight) return 'straight';
+  if (groups[0] === 3) return 'three-of-a-kind';
+  if (groups[0] === 2 && groups[1] === 2) return 'two-pair';
+  if ([...counts].some(([rank, count]) => rank >= 11 && count === 2)) return 'jacks-or-better';
+  return 'nothing';
+}
+
+export function startVideoPoker(state, stake, randomInt = secureRandomInt) {
+  if (state.videoPoker?.status === 'playing') throw new Error('Finish the current poker hand first.');
+  const next = takeStake(state, stake);
+  const deck = makeShoe(randomInt);
+  const cards = Array.from({ length: 5 }, () => draw(deck));
+  next.videoPoker = {
+    cards, held: [false, false, false, false, false], stake, status: 'playing',
+    category: null, payout: null, net: null, deck,
+  };
+  return next;
+}
+
+function activePokerHand(state) {
+  if (state.videoPoker?.status !== 'playing') throw new Error('Deal a poker hand first.');
+  return state.videoPoker;
+}
+
+export function togglePokerHold(state, cardIndex) {
+  const hand = activePokerHand(state);
+  if (!integerBetween(cardIndex, 0, hand.cards.length - 1)) throw new Error('Choose one of the five cards to hold.');
+  const held = [...hand.held];
+  held[cardIndex] = !held[cardIndex];
+  return { ...state, videoPoker: { ...hand, held } };
+}
+
+function pokerStatus(multiplier) {
+  if (multiplier === 0) return 'loss';
+  if (multiplier === 1) return 'push';
+  return 'win';
+}
+
+export function drawVideoPoker(state) {
+  const hand = activePokerHand(state);
+  const deck = [...hand.deck];
+  const cards = hand.cards.map((card, index) => hand.held[index] ? card : draw(deck));
+  const category = scorePokerHand(cards);
+  const { label, payoutMultiplier } = POKER_RESULTS[category];
+  const payout = hand.stake * payoutMultiplier;
+  const status = pokerStatus(payoutMultiplier);
+  return settle(state, 'videoPoker', { ...hand, cards, category, payout, status, deck: [] }, label);
+}
+
 export function rouletteColor(number) {
   if (!integerBetween(number, 0, 36)) throw new Error('The roulette pocket must be between 0 and 36.');
   if (number === 0) return 'green';
@@ -265,6 +347,10 @@ function uniqueCards(cards) {
   return new Set(cards.map(({ rank, suit }) => `${rank} ${suit}`)).size === cards.length;
 }
 
+function validPokerCards(cards) {
+  return Array.isArray(cards) && cards.length === 5 && validCards([...cards]) && uniqueCards(cards);
+}
+
 function validBlackjack(hand, shoe) {
   if (hand === null) return shoe.length === 0;
   if (!isRecord(hand) || !validCards(hand.player) || !validCards(hand.dealer)
@@ -281,6 +367,10 @@ function validSettledWager(result, game) {
     || !currencyAmount(result.payout) || result.net !== result.payout - result.stake
     || !SETTLED_STATUS.includes(result.status)) return false;
   const multiplier = result.payout / result.stake;
+  if (game === 'videoPoker') {
+    return result.status === pokerStatus(multiplier)
+      && POKER_PAYTABLE.some(({ payoutMultiplier }) => payoutMultiplier === multiplier);
+  }
   if (result.status === 'loss') return multiplier === 0;
   if (result.status === 'push') return game === 'blackjack' && multiplier === 1;
   if (result.status === 'blackjack') return game === 'blackjack' && multiplier === 2.5;
@@ -302,16 +392,41 @@ function validDice(result) {
     && result.sum === result.dice[0] + result.dice[1] && result.payout === result.stake * diceMultiplier(result.bet, result.sum);
 }
 
+function validVideoPoker(hand) {
+  if (hand === null) return true;
+  if (!isRecord(hand) || !validPokerCards(hand.cards) || !validCards(hand.deck)
+    || !Array.isArray(hand.held) || hand.held.length !== 5
+    || !hand.held.every((held) => typeof held === 'boolean')) return false;
+  if (hand.status === 'playing') {
+    return integerBetween(hand.stake, MIN_BET, MAX_BET) && hand.deck.length === 47
+      && uniqueCards([...hand.cards, ...hand.deck])
+      && hand.category === null && hand.payout === null && hand.net === null;
+  }
+  if (hand.deck.length !== 0 || !validSettledWager(hand, 'videoPoker')) return false;
+  const category = scorePokerHand(hand.cards);
+  return hand.category === category && hand.payout === hand.stake * POKER_RESULTS[category].payoutMultiplier;
+}
+
+function pendingStake(hand) {
+  return hand?.status === 'playing' ? hand.stake : 0;
+}
+
+function validHistoryEntry(entry, expectedId) {
+  if (!isRecord(entry) || !['blackjack', 'roulette', 'dice', 'videoPoker'].includes(entry.game)
+    || !validSettledWager(entry, entry.game) || entry.id !== expectedId
+    || typeof entry.label !== 'string' || entry.label.length > 100) return false;
+  return entry.game !== 'videoPoker' || POKER_PAYTABLE.some(({ label, payoutMultiplier }) =>
+    entry.label === label && entry.payout === entry.stake * payoutMultiplier);
+}
+
 function validAccounting(state) {
-  const { stats, history, balance, blackjack } = state;
+  const { stats, history, balance, blackjack, videoPoker } = state;
   if (!isRecord(stats) || !integerBetween(stats.rounds, 0, Number.MAX_SAFE_INTEGER)
     || !currencyAmount(stats.wagered) || !currencyAmount(stats.returned) || !currencyAmount(balance)
     || !Array.isArray(history) || history.length !== Math.min(stats.rounds, HISTORY_LIMIT)) return false;
-  const pending = blackjack?.status === 'playing' ? blackjack.stake : 0;
+  const pending = pendingStake(blackjack) + pendingStake(videoPoker);
   if (balance !== START_BALANCE + (stats.returned - stats.wagered) - pending) return false;
-  return history.every((entry, index) => isRecord(entry) && ['blackjack', 'roulette', 'dice'].includes(entry.game)
-    && validSettledWager(entry, entry.game) && entry.id === stats.rounds - index
-    && typeof entry.label === 'string' && entry.label.length <= 100);
+  return history.every((entry, index) => validHistoryEntry(entry, stats.rounds - index));
 }
 
 export function saveSession(state) {
@@ -325,9 +440,13 @@ export function loadSession(json) {
   } catch {
     throw new Error('This saved session could not be read.');
   }
+  if (isRecord(state) && state.version === LEGACY_VERSION && !Object.hasOwn(state, 'videoPoker')
+    && Array.isArray(state.history) && !state.history.some((entry) => entry?.game === 'videoPoker')) {
+    state = { ...state, version: VERSION, videoPoker: null };
+  }
   if (!isRecord(state) || state.version !== VERSION || !validCards(state.shoe)
     || !validBlackjack(state.blackjack, state.shoe) || !validRoulette(state.roulette)
-    || !validDice(state.dice) || !validAccounting(state)) {
+    || !validDice(state.dice) || !validVideoPoker(state.videoPoker) || !validAccounting(state)) {
     throw new Error('This saved session is invalid or uses an unsupported format.');
   }
   return state;

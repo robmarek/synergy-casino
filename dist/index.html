@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Play blackjack, roulette, and dice with practice SNRG in the Synergy Casino dApp prototype.">
+  <meta name="theme-color" content="#07110e">
+  <title>Synergy Casino</title>
+  <link rel="icon" href="./assets/casino.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./casino.css">
+  <script src="./app.mjs" type="module"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#lobby" aria-label="Synergy Casino lobby">
+        <span class="brand-icon" aria-hidden="true">♠</span>
+        <span class="brand-name">SYNERGY <b>CASINO</b></span>
+      </a>
+      <nav class="main-nav" aria-label="Casino tables">
+        <a href="#lobby" data-route="lobby" aria-current="page">Lobby</a>
+        <a href="#blackjack" data-route="blackjack">Blackjack</a>
+        <a href="#roulette" data-route="roulette">Roulette</a>
+        <a href="#dice" data-route="dice">Dice</a>
+      </nav>
+      <button class="wallet" id="show-session" type="button" aria-label="Practice balance and session history">
+        <span class="coin" aria-hidden="true">S</span>
+        <span><span class="wallet-label">PRACTICE BALANCE</span><strong id="header-balance">1,000 SNRG</strong></span>
+      </button>
+    </div>
+  </header>
+  <main class="wrap" id="main">
+    <section id="lobby" aria-labelledby="lobby-title">
+      <div class="hero">
+        <div class="hero-copy">
+          <div class="hero-label"><span aria-hidden="true"></span> SYNERGY NETWORK · PRACTICE PLAY</div>
+          <h1 id="lobby-title">The house is<br><em>open.</em></h1>
+          <p>Play blackjack, roulette, or dice with a practice balance denominated in SNRG.</p>
+          <a class="gold-button hero-action" href="#tables">Explore the tables <span aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+      <section class="table-lobby" id="tables" aria-labelledby="tables-title">
+        <div class="section-heading"><h2 id="tables-title">Choose a table</h2><span>1–500 SNRG PER BET</span></div>
+        <div class="lobby-grid">
+          <a class="lobby-card" href="#blackjack">
+            <div class="thumb blackjack-art" aria-hidden="true"></div>
+            <div class="lobby-card-copy"><div><h3>Blackjack</h3><p>Get closer to 21 than the dealer.</p></div><span class="table-arrow" aria-hidden="true">↗</span></div>
+          </a>
+          <a class="lobby-card" href="#roulette">
+            <div class="thumb roulette-art" aria-hidden="true"></div>
+            <div class="lobby-card-copy"><div><h3>Roulette</h3><p>Bet on a color, parity, or a single pocket.</p></div><span class="table-arrow" aria-hidden="true">↗</span></div>
+          </a>
+          <a class="lobby-card" href="#dice">
+            <div class="thumb dice-art" aria-hidden="true"></div>
+            <div class="lobby-card-copy"><div><h3>Dice</h3><p>Call low, high, or exactly seven.</p></div><span class="table-arrow" aria-hidden="true">↗</span></div>
+          </a>
+        </div>
+      </section>
+    </section>
+    <section id="table-view" aria-labelledby="table-title" hidden>
+      <div class="table-heading">
+        <a class="back-link" href="#lobby">← All tables</a>
+        <div class="table-title-row"><h1 id="table-title" tabindex="-1"></h1><button id="show-rules" class="outline-button" type="button">Table rules</button></div>
+        <p id="table-intro"></p>
+      </div>
+      <div class="table-layout">
+        <section id="game-stage" class="game-stage" aria-label="Game table"></section>
+        <section class="bet-panel" aria-labelledby="controls-title"><h2 id="controls-title">Place your bet</h2><div id="controls"></div></section>
+      </div>
+      <div class="table-notice" role="status" id="table-notice"></div>
+    </section>
+    <footer class="site-footer">
+      <div><span class="footer-mark" aria-hidden="true">♠</span> Practice SNRG stays in this browser.</div>
+      <button id="show-network" type="button"><span class="network-dot" aria-hidden="true"></span> Synergy Testnet v3 <span aria-hidden="true">↗</span></button>
+    </footer>
+  </main>
+  <dialog id="rules-dialog" aria-labelledby="rules-title">
+    <button class="close-button" type="button" aria-label="Close" data-close>×</button>
+    <h2 id="rules-title">Table rules</h2>
+    <div id="rules-content"></div>
+    <button class="outline-button" type="button" data-close>Back to table</button>
+  </dialog>
+  <dialog id="session-dialog" aria-labelledby="session-title">
+    <button class="close-button" type="button" aria-label="Close" data-close>×</button>
+    <h2 id="session-title">Your practice session</h2>
+    <div id="session-content"></div>
+    <button class="outline-button" id="show-reset" type="button">Reset session</button>
+  </dialog>
+  <dialog id="reset-dialog" aria-labelledby="reset-title">
+    <button class="close-button" type="button" aria-label="Close" data-close>×</button>
+    <h2 id="reset-title">Reset session?</h2>
+    <p>Reset your balance to 1,000 practice SNRG and clear your hands, wagers, and history.</p>
+    <div class="dialog-actions"><button class="outline-button" type="button" data-close>Cancel</button><button class="gold-button" id="reset-session" type="button">Reset practice balance</button></div>
+  </dialog>
+  <dialog id="network-dialog" aria-labelledby="network-title">
+    <button class="close-button" type="button" aria-label="Close" data-close>×</button>
+    <h2 id="network-title">Synergy Testnet v3</h2>
+    <p>Check the network’s identity. Live wagering requires on-chain settlement and independently verifiable randomness.</p>
+    <dl class="network-facts"><div><dt>Expected chain</dt><dd id="chain-id">1266</dd></div><div><dt>Native currency</dt><dd id="chain-currency">SNRG</dd></div><div><dt>RPC status</dt><dd id="network-status" aria-live="polite">Ready to check</dd></div></dl>
+    <button class="gold-button" id="check-network" type="button">Check testnet</button>
+  </dialog>
+</body>
+</html>

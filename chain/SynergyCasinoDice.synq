@@ -1,0 +1,26 @@
+// Pure payout arithmetic for the two-die practice game.
+// The dice are supplied by the caller for local test vectors.
+contract SynergyCasinoDice {
+    constructor() {
+        require(msg.value == 0, "Practice SNRG only");
+    }
+
+    // Return the gross practice SNRG credited back, including a winning stake.
+    @public @gas_cost(base: 20000)
+    function quotePayout(stake: UInt256, bet: String, firstDie: UInt256, secondDie: UInt256) -> UInt256 {
+        require(msg.value == 0, "Practice SNRG only");
+        require(stake >= 1 && stake <= 500, "Stake must be 1 through 500");
+        require(firstDie >= 1 && firstDie <= 6, "First die must be 1 through 6");
+        require(secondDie >= 1 && secondDie <= 6, "Second die must be 1 through 6");
+        require(bet == "low" || bet == "high" || bet == "seven", "Unknown dice bet");
+
+        let total: UInt256 = firstDie + secondDie;
+        if (bet == "seven" && total == 7) {
+            return stake * 5;
+        }
+        if ((bet == "low" && total < 7) || (bet == "high" && total > 7)) {
+            return stake * 2;
+        }
+        return 0;
+    }
+}

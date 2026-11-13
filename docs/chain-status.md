@@ -1,0 +1,19 @@
+# Synergy Casino and SNRG settlement
+
+## Practice mode
+
+The browser tracks practice balances and wagers denominated in SNRG. The balance is local, has no redemption value, and is independent of a Synergy Wallet balance. Blackjack, roulette, and dice use browser-generated randomness. The network panel makes a read-only chain identity request. Its result has no effect on gameplay.
+
+## What the testnet supports today
+
+- Synergy Coin (SNRG) is the native coin. One SNRG equals 1,000,000,000 nWei. Synergy Testnet v3 uses chain ID `1266` (`0x4f2`), runtime network `synergy-testnet-v3`, and native CAIP-2 identifier `synergy:testnet-v3`. [Forge network reference](https://forge.synergy-network.io/networks)
+- On November 12, 2026, `synergy_getChainId` returned `0x4f2` from the public testnet endpoint. This verifies the endpoint's reported chain identity for that request. The check also handles unavailable responses and unexpected chain IDs. [Forge RPC reference](https://forge.synergy-network.io/integrate/api-and-rpc/rpc-overview)
+- Synergy Wallet provides approval for signed operations. A direct SNRG transfer moves value between accounts. A casino requires the chain to enforce wager acceptance, outcome verification, and settlement. Forge documents general SynQ deployment and execution as blocked pending a verified AIVM admission path and canonical receipts. [Synergy Wallet](https://synergy-network.io/ecosystem/wallet) · [Forge wallet and deployment workflow](https://forge.synergy-network.io/build/quick-start) · [AIVM runtime status](https://forge.synergy-network.io/build/aivm/overview)
+- Synergy's design requires contract randomness from an explicitly declared, Aegis-governed protocol source. A live testnet randomness source suitable for independent verification of casino outcomes remains unverified. [SynQ whitepaper, deterministic execution](https://synergy-network.io/synq)
+
+## Acceptance criteria for native-SNRG wagers
+
+1. **Deployment and verification.** Deploy the exact casino artifact to a verified Testnet v3 incarnation via a supported AIVM path. Independently retrieve finalized deployment and invocation receipts, confirm the deployed code and rules version, and reconcile state and native balance changes from chain data.
+2. **Wager acceptance.** Synergy Wallet shows the chain, contract, table, selection, stake, and fee before approval. Use exact integer nWei throughout. A successful acceptance transaction escrows the approved stake and reserves the maximum payable amount together. A rejected transaction leaves no accepted wager or locked stake. Each accepted wager fixes a unique ID, player, rules version, payout schedule, and randomness request.
+3. **Independent randomness.** Bind a supported protocol randomness proof to the finalized wager, its chain incarnation, contract, and round. The outcome must be unpredictable when the stake is committed. Players, the operator, and randomness participants must be unable to choose among valid results or silently discard one. Independent observers must be able to verify the proof and recompute the result using the published rules. Use unbiased mapping for roulette pockets and dice faces. In blackjack, cards awaiting a player decision must stay concealed until that decision is committed, with verifiable draws from the committed shoe.
+4. **Settlement and recovery.** The contract must atomically record the terminal outcome and transfer the exact native payout or refund. Duplicate, late, invalid, or reordered proofs cannot trigger a second payout. Verify that insufficient reserves reject wagers before acceptance, failed settlement leaves a recoverable state, and a documented timeout lets the player recover the stake if randomness is unavailable. Exercise wins, losses, ties, rounding, concurrent wagers, interrupted play, refunds, and duplicate attempts on testnet. Compare finalized receipts and wallet balances before enabling wager controls.

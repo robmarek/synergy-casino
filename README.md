@@ -1,5 +1,7 @@
 # Synergy Casino
 
+[Play online](https://robmarek.github.io/synergy-casino/)
+
 Play blackjack, single-zero roulette, two-dice high/low/seven, and Jacks or Better video poker using practice SNRG. Each session begins with 1,000 SNRG. The browser saves your balance, open hands, video poker holds, and recent results on this device.
 
 In video poker, deal five cards, hold any cards you want to keep, then draw once. The displayed paytable gives the total return per 1 SNRG wagered, including the stake. Jacks or Better returns the original stake, a royal flush returns 800 times the wager, and the same paytable applies to every wager.

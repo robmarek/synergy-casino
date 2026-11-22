@@ -243,3 +243,15 @@ test('recent history caps at 30 results while session stats retain every wager',
   assert.equal(state.balance, START_BALANCE + 40);
   assert.deepEqual(loadSession(saveSession(state)), state);
 });
+
+test('restored session totals account for its recorded wagers in current and legacy saves', () => {
+  const state = rollDice(createSession(), 10, 'low', numbers(0, 0));
+  const altered = { ...state, stats: { ...state.stats, wagered: 20, returned: 30 } };
+  assert.throws(() => loadSession(saveSession(altered)), /invalid/);
+  const { videoPoker, ...legacy } = state;
+  assert.equal(videoPoker, null);
+  assert.deepEqual(loadSession(saveSession({ ...legacy, version: 1 })), state);
+  assert.throws(() => loadSession(saveSession({
+    ...legacy, version: 1, stats: altered.stats,
+  })), /invalid/);
+});

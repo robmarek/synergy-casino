@@ -73,12 +73,23 @@ function button(text, className, id, handler) {
   return item;
 }
 
+function showSaveStatus(message) {
+  byId('save-status').textContent = message;
+  byId('save-status').hidden = !message;
+}
+
 function restore() {
   try {
     const saved = localStorage.getItem(storageKey);
-    if (saved) return loadSession(saved);
+    if (saved) {
+      try {
+        return loadSession(saved);
+      } catch {
+        showSaveStatus('Your saved session could not be restored. A fresh practice balance is ready.');
+      }
+    }
   } catch {
-    // An unavailable or invalid save can be replaced by a fresh practice session.
+    showSaveStatus('Saving is unavailable in this browser. Keep this page open to continue your session.');
   }
   return createSession();
 }
@@ -86,8 +97,9 @@ function restore() {
 function persist() {
   try {
     localStorage.setItem(storageKey, saveSession(state));
+    showSaveStatus('');
   } catch {
-    // A browser with storage disabled can still play for this page session.
+    showSaveStatus('Your latest play could not be saved. Keep this page open to continue your session.');
   }
 }
 
@@ -118,7 +130,7 @@ function navigate(focus = false) {
   render();
   if (focus && hash !== 'tables') {
     window.scrollTo(0, 0);
-    if (route !== 'lobby') byId('table-title').focus({ preventScroll: true });
+    byId(route === 'lobby' ? 'lobby-title' : 'table-title').focus({ preventScroll: true });
   }
 }
 
@@ -140,10 +152,16 @@ function play(action, nextFocus, animateSelector) {
       status = result.status === 'playing'
         ? `${held} of 5 cards held.`
         : `${pokerHands.get(result.category)}. ${snrg(result.payout)} returned.`;
-    } else {
+    } else if (route === 'blackjack') {
+      const total = scoreHand(result.player).total;
+      const dealer = result.status === 'playing' ? result.dealer.slice(0, 1) : result.dealer;
+      const totals = `Your total ${total}. Dealer ${result.status === 'playing' ? 'shows' : 'total'} ${scoreHand(dealer).total}.`;
       status = result.status === 'playing'
-        ? (canDoubleBlackjack(state) ? 'Choose hit, stand, or double down.' : 'Choose hit or stand.')
-        : `${resultNames[result.status]}. ${snrg(result.payout)} returned.`;
+        ? `${totals} ${canDoubleBlackjack(state) ? 'Choose hit, stand, or double down.' : 'Choose hit or stand.'}`
+        : `${resultNames[result.status]}. ${totals} ${snrg(result.payout)} returned.`;
+    } else {
+      const outcome = route === 'roulette' ? `${result.number} ${result.color}` : `Rolled ${result.dice.join(' and ')}, total ${result.sum}`;
+      status = `${outcome}. ${resultNames[result.status]}. ${snrg(result.payout)} returned.`;
     }
     setNotice(status);
     persist();
@@ -459,6 +477,10 @@ function wagerControls() {
 
 function render() {
   byId('header-balance').textContent = snrg(state.balance);
+  const pending = byId('pending-hands');
+  const links = pendingHands();
+  pending.replaceChildren(...links);
+  pending.hidden = links.length === 0;
   if (route === 'lobby') return;
   byId('table-title').textContent = tableInfo[route].title;
   byId('table-intro').textContent = tableInfo[route].intro;
@@ -481,6 +503,20 @@ function showRules() {
   list.append(...tableInfo[route].rules.map((rule) => node('li', '', rule)));
   content.replaceChildren(list);
   byId('rules-dialog').showModal();
+}
+
+function pendingHands() {
+  return ['blackjack', 'videoPoker'].filter((game) => state[game]?.status === 'playing').map((game) => {
+    const pending = node('p', 'pending-hand');
+    const resume = node('a', '', `Resume ${tableInfo[game].title}`);
+    resume.href = game === 'videoPoker' ? '#video-poker' : '#blackjack';
+    resume.addEventListener('click', () => {
+      byId('session-dialog').close();
+      if (route === game) byId(game === 'videoPoker' ? 'hold-card-1' : 'hit').focus();
+    });
+    pending.append(resume, document.createTextNode(` · ${snrg(state[game].stake)} in play`));
+    return pending;
+  });
 }
 
 function showSession() {
@@ -508,19 +544,7 @@ function showSession() {
   const history = state.history.length ? list : node('p', 'session-empty', 'Settled wagers will appear here.');
   const content = byId('session-content');
   content.replaceChildren(stats);
-  if (state.blackjack?.status === 'playing') content.append(node('p', '', `Blackjack hand in progress · ${snrg(state.blackjack.stake)} reserved`));
-  if (state.videoPoker?.status === 'playing') {
-    const pending = node('p', 'pending-hand');
-    const resume = node('a', '', 'Resume video poker hand');
-    resume.href = '#video-poker';
-    resume.addEventListener('click', () => {
-      byId('session-dialog').close();
-      if (route === 'videoPoker') byId('hold-card-1').focus();
-    });
-    pending.append(resume, document.createTextNode(` · ${snrg(state.videoPoker.stake)} reserved`));
-    content.append(pending);
-  }
-  content.append(history);
+  content.append(...pendingHands(), history);
   byId('session-dialog').showModal();
 }
 

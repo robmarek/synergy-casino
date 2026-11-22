@@ -426,7 +426,11 @@ function validAccounting(state) {
     || !Array.isArray(history) || history.length !== Math.min(stats.rounds, HISTORY_LIMIT)) return false;
   const pending = pendingStake(blackjack) + pendingStake(videoPoker);
   if (balance !== START_BALANCE + (stats.returned - stats.wagered) - pending) return false;
-  return history.every((entry, index) => validHistoryEntry(entry, stats.rounds - index));
+  if (!history.every((entry, index) => validHistoryEntry(entry, stats.rounds - index))) return false;
+  const recentWagered = history.reduce((sum, entry) => sum + entry.stake, 0);
+  const recentReturned = history.reduce((sum, entry) => sum + entry.payout, 0);
+  if (recentWagered > stats.wagered || recentReturned > stats.returned) return false;
+  return stats.rounds > HISTORY_LIMIT || (recentWagered === stats.wagered && recentReturned === stats.returned);
 }
 
 export function saveSession(state) {
